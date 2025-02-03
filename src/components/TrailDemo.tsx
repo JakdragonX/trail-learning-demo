@@ -3,6 +3,10 @@
 import React, { useState } from 'react';
 import { Card, CardContent } from '../components/ui/card';
 import { Upload, BookOpen, GraduationCap, FileText, Plus, X, ChevronDown, ChevronRight, GripVertical, Eye, ArrowLeft, Book, Calendar, Video, Link } from 'lucide-react';
+import ContentSpecificationForm from './ContentSpecificationForm';
+import StudentModuleView from './StudentModuleView';
+import LoadingState from './LoadingState';
+import LandingPage from './LandingPage';
 
 const TrailDemo = () => {
   const [currentStep, setCurrentStep] = useState('welcome');
@@ -13,6 +17,16 @@ const TrailDemo = () => {
     moduleCount: 5,
     includeNotes: true
   });
+  
+  const [courseSpecs, setCourseSpecs] = useState({
+    courseTitle: '',
+    courseDescription: '',
+    targetAudience: '',
+    resources: []
+  });
+const [currentTask, setCurrentTask] = useState('');
+const [courses, setCourses] = useState([]);
+const [viewingLanding, setViewingLanding] = useState(false);
   const [generatedContent, setGeneratedContent] = useState(null);
   const [isPreview, setIsPreview] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -77,34 +91,70 @@ const TrailDemo = () => {
     e.target.style.opacity = '1';
   };
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.target.className.includes('draggable')) {
-      e.target.style.borderTop = '2px solid #2D4F1E';
+    const target = e.target as HTMLElement;
+    if (target && typeof target.className === 'string' && target.className.includes('draggable')) {
+      target.style.borderTop = '2px solid #2D4F1E';
     }
   };
 
   const generateCourseContent = async () => {
     setIsGenerating(true);
-  try {
-    const aiContent = await generateModuleContent("Digital Security Fundamentals");
-    if (aiContent) {
-      // For now, just log the AI response
-      console.log('AI Generated Content:', aiContent);
+    try {
+      setCurrentTask('structuring');
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          courseType,
+          moduleCount: configData.moduleCount,
+          examCount: configData.examCount,
+          includeNotes: configData.includeNotes,
+          courseSpecs
+        }),
+      });
+  
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error('Error details:', data);
+        throw new Error(data.error || 'Failed to generate content');
+      }
+  
+      setCurrentTask('finalizing');
+      console.log('Received data:', data);
+      
+      if (data.success) {
+        const newCourse = {
+          title: courseSpecs.courseTitle || 'Untitled Course',
+          description: courseSpecs.courseDescription || 'No description provided',
+          moduleCount: configData.moduleCount,
+          lastAccessed: new Date().toLocaleDateString(),
+          type: courseType
+        };
+        
+        setCourses([...courses, newCourse]);
+        setGeneratedContent(data.course);
+        setCurrentStep('modules');
+      } else {
+        throw new Error(data.error || 'Failed to generate content');
+      }
+    } catch (error) {
+      console.error('Error generating course:', error);
+      // You might want to show an error message to the user here
+    } finally {
+      setIsGenerating(false);
     }
-    setGeneratedContent(mockContent); // Keep using mock content for now
-  } catch (error) {
-    console.error('Error:', error);
-  }
-  setIsGenerating(false);
-  setCurrentStep('modules');
-};
+  };
 
   const ModuleView = ({ isPreviewMode = false }) => (
     <div className="space-y-4">
-      {mockContent.modules.map((module, idx) => (
+      {generatedContent?.modules?.map((module, idx) => (
         <div
-          key={module.id}
+          key={module.id || idx}
           draggable={!isPreviewMode}
           onDragStart={(e) => handleDragStart(e, module.id)}
           onDragEnd={handleDragEnd}
@@ -121,7 +171,9 @@ const TrailDemo = () => {
               />
             </div>
           </div>
-
+  
+          <p className="text-gray-600 mb-4">{module.description}</p>
+  
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-4">
               <div className="bg-[#FAF6F1] p-4 rounded-lg">
@@ -136,7 +188,7 @@ const TrailDemo = () => {
                   </div>
                 ))}
               </div>
-
+  
               <div className="bg-[#FAF6F1] p-4 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
                   <Video className="text-[#2D4F1E]" />
@@ -150,7 +202,7 @@ const TrailDemo = () => {
                 ))}
               </div>
             </div>
-
+  
             <div className="space-y-4">
               <div className="bg-[#FAF6F1] p-4 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
@@ -163,15 +215,17 @@ const TrailDemo = () => {
                   </div>
                 ))}
               </div>
-
+  
               <div className="bg-[#FAF6F1] p-4 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
                   <Link className="text-[#2D4F1E]" />
                   <h4 className="font-medium">Resources</h4>
                 </div>
                 <div className="space-y-2">
-                  <button className={`${styles.button} w-full text-sm`}>Download Notes</button>
                   <button className={`${styles.button} w-full text-sm`}>View Quiz</button>
+                  {module.notes && (
+                    <button className={`${styles.button} w-full text-sm`}>Download Notes</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -224,6 +278,14 @@ const TrailDemo = () => {
           Next
         </button>
       </div>
+  
+      <ContentSpecificationForm 
+        onUpdate={(specs) => {
+          setCourseSpecs(specs);
+          // Optionally move to next step
+          setCurrentStep('configure');
+        }} 
+      />
 
       <Card className={styles.card}>
         <CardContent className="space-y-4 p-6">
@@ -320,21 +382,37 @@ const TrailDemo = () => {
   );
 
   const renderContent = () => {
-    if (isPreview) {
+    if (viewingLanding) {
       return (
-        <div className="space-y-6">
-          <div className="flex items-center gap-4">
-            <ArrowLeft 
-              className="cursor-pointer text-[#2D4F1E]" 
-              onClick={() => setIsPreview(false)}
-            />
-            <h2 className="text-2xl font-semibold">Student View</h2>
-          </div>
-          <ModuleView isPreviewMode={true} />
-        </div>
+        <LandingPage 
+          courses={courses}
+          onCreateNew={() => {
+            setViewingLanding(false);
+            setCurrentStep('welcome');
+          }}
+          onSelectCourse={(course) => {
+            // Handle course selection
+            setViewingLanding(false);
+            setGeneratedContent(course);
+            setCurrentStep('modules');
+          }}
+        />
       );
     }
-
+  
+    if (isGenerating) {
+      return <LoadingState currentTask={currentTask} />;
+    }
+    
+    if (isPreview) {
+      return (
+        <StudentModuleView 
+          modules={generatedContent.modules} 
+          onBack={() => setIsPreview(false)}
+        />
+      );
+    }
+  
     switch (currentStep) {
       case 'welcome':
         return renderWelcome();
@@ -384,8 +462,17 @@ const TrailDemo = () => {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <h1 className="text-4xl font-bold text-white">Trail</h1>
-        <p className="text-lg text-white opacity-80">Your AI-Powered Learning Journey</p>
+        <div className="flex justify-between items-center max-w-6xl mx-auto">
+          <div>
+            <h1 className="text-4xl font-bold text-white">Trail</h1>
+            <p className="text-lg text-white opacity-80">Your AI-Powered Learning Journey</p>
+          </div>
+          <button 
+            className="text-white hover:underline"
+            onClick={() => setViewingLanding(true)}>
+            My Courses
+          </button>
+        </div>
       </div>
       <div className="max-w-6xl mx-auto p-6 bg-white">
         {renderContent()}
